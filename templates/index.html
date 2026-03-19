@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bluetooth Manager</title>
+    <!-- Use a modern Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo-container">
+                <div class="logo-icon"></div>
+                <h1>Bluetooth Manager</h1>
+            </div>
+            <p>Scan and connect to nearby BLE devices seamlessly</p>
+        </header>
+
+        <main>
+            <div class="controls">
+                <button id="scan-btn" class="primary-btn">
+                    <span class="btn-text">Scan Devices</span>
+                    <span class="btn-spinner hidden"></span>
+                </button>
+            </div>
+
+            <div class="status-message" id="status-message"></div>
+
+            <div class="device-list-container">
+                <table class="device-table" id="device-table">
+                    <thead>
+                        <tr>
+                            <th>Device Name</th>
+                            <th>MAC Address</th>
+                            <th>Signal (RSSI)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="device-tbody">
+                        <tr class="empty-state">
+                            <td colspan="4">No devices found. Click "Scan Devices" to begin.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
