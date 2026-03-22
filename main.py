@@ -4,6 +4,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from bleak import BleakScanner, BleakClient
+from winrt.windows.devices.enumeration import DeviceInformation
+from winrt.windows.devices.bluetooth import BluetoothDevice
 
 app = FastAPI(title="Bluetooth Manager")
 
@@ -22,17 +24,55 @@ async def home(request: Request):
 
 @app.get("/api/scan")
 async def scan_devices():
-    """Scans for nearby BLE devices and returns a list."""
+    """Scans for nearby BLE and Classic devices and returns a list."""
     try:
-        # Scan for devices, timeout 5 seconds, and get advertisement data
-        devices = await BleakScanner.discover(timeout=5.0, return_adv=True)
         device_list = []
+        seen_macs = set()
+        
+        # 1. Provide an initial list from Classic Bluetooth cache (for phones/headphones)
+        try:
+            aqs = BluetoothDevice.get_device_selector()
+            # Append AQS rule to only return devices currently present (nearby/turned on)
+            aqs += ' AND System.Devices.Aep.IsPresent:=System.StructuredQueryType.Boolean#True'
+            classic_devices = await DeviceInformation.find_all_async_aqs_filter(aqs)
+            for d in classic_devices:
+                bt_device = await BluetoothDevice.from_id_async(d.id)
+                if bt_device:
+                    mac_int = bt_device.bluetooth_address
+                    mac_str = ":".join(f"{mac_int:012X}"[i:i+2] for i in range(0, 12, 2))
+                    # Prefer the Windows friendly name over the hardware ad name
+                    name = d.name or bt_device.name
+                    
+                    if name and name.strip():
+                        seen_macs.add(mac_str)
+                        device_list.append({
+                            "name": name,
+                            "address": mac_str,
+                            "rssi": -50, # Fake strong RSSI for known devices so they show up high
+                            "type": "Classic"
+                        })
+        except Exception as e:
+            print(f"Error finding Classic Bluetooth devices: {e}")
+
+        # 2. Scan for BLE devices, timeout 5 seconds
+        devices = await BleakScanner.discover(timeout=5.0, return_adv=True)
         for d, adv in devices.values():
+            if d.address in seen_macs:
+                continue # We already have a good name from the Classic side
+                
+            # Get name from either standard property or advertisement data
+            actual_name = d.name or adv.local_name
+            # Provide a fallback if name is completely empty, incorporating the MAC address so it's distinct
+            if not actual_name or str(actual_name).strip() == "":
+                actual_name = f"Unknown Device ({d.address})"
+                
             device_list.append({
-                "name": d.name or adv.local_name or "Unknown Device",
+                "name": actual_name,
                 "address": d.address,
-                "rssi": adv.rssi,
+                "rssi": adv.rssi if adv.rssi is not None else -100,
+                "type": "BLE"
             })
+            seen_macs.add(d.address)
         
         # Sort by signal strength (RSSI)
         device_list.sort(key=lambda x: x["rssi"], reverse=True)
