@@ -1,27 +1,28 @@
 import asyncio
-from winrt.windows.devices.enumeration import DeviceInformation
-from winrt.windows.devices.bluetooth import BluetoothDevice
+from bleak import BleakClient
 
-async def test():
-    aqs = BluetoothDevice.get_device_selector()
-    # AQS string to only return devices currently present
-    aqs_present = aqs + ' AND System.Devices.Aep.IsPresent:=System.StructuredQueryType.Boolean#True'
-    
+DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
+
+# The closest device
+ADDRESS = "2A:76:F9:A7:9E:36"
+
+async def test_gatt():
+    print(f"Attempting GATT connection to {ADDRESS}...")
     try:
-        devices = await DeviceInformation.find_all_async_aqs_filter(aqs_present)
-        print(f"Found {devices.size} present devices with AQS.")
-        for d in devices:
-            print(f"Present Device: {d.name}")
-            
-        print("---")
-        # Also run without IsPresent to compare
-        all_devices = await DeviceInformation.find_all_async_aqs_filter(aqs)
-        print(f"Found {all_devices.size} total paired/cached devices.")
-        for d in all_devices:
-            print(f"Any Device: {d.name}")
+        async with BleakClient(ADDRESS, timeout=8.0) as client:
+            print(f"Connected: {client.is_connected}")
+            try:
+                data = await asyncio.wait_for(
+                    client.read_gatt_char(DEVICE_NAME_UUID), timeout=5.0
+                )
+                print(f"Device Name: {data.decode('utf-8', errors='ignore')}")
+            except Exception as e:
+                print(f"Name characteristic error: {e}")
 
+            print("Services:")
+            for svc in client.services:
+                print(f"  {svc}")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Connection error: {e}")
 
-if __name__ == "__main__":
-    asyncio.run(test())
+asyncio.run(test_gatt())

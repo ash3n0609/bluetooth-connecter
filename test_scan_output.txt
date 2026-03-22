@@ -1,0 +1,18 @@
+﻿Scanning for 8 seconds...
+
+Address      : 2A:76:F9:A7:9E:36
+  dev.name   : None
+  local_name : None
+  rssi       : -46
+  mfr data   : {}
+  service_data: {'0000fef3-0000-1000-8000-00805f9b34fb': b'J\x17#UPI3\x112\xb5)F%1\xf5\xc9\xd2\x05\xc1\x18\xc0\x12\x08\x97\xdc\x13\xfc'}
+  uuids      : []
+
+Address      : 22:11:2F:A2:07:C4
+  dev.name   : None
+  local_name : None
+  rssi       : -89
+  mfr data   : {}
+  service_data: {'0000fcf1-0000-1000-8000-00805f9b34fb': b'\x04em\x94\xa5\x92\xb6\xf5\xe8e\xaa\x90~\xd3\x16\xd9\xd0\xae\x08\xae\xdc\xc3'}
+  uuids      : []
+
