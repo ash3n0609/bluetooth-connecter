@@ -1,169 +1,206 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // DOM Elements
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const selectedFileInfo = document.getElementById('selected-file-info');
+    const fileNameDisplay = document.getElementById('file-name-display');
+    const fileSizeDisplay = document.getElementById('file-size-display');
+    const clearFileBtn = document.getElementById('clear-file-btn');
+    
     const scanBtn = document.getElementById('scan-btn');
     const btnText = scanBtn.querySelector('.btn-text');
     const btnSpinner = scanBtn.querySelector('.btn-spinner');
-    const statusMessage = document.getElementById('status-message');
     const deviceTbody = document.getElementById('device-tbody');
+    const statusMessage = document.getElementById('status-message');
+    const deviceRowTemplate = document.getElementById('device-row-template');
 
     // State
+    let selectedFile = null;
     let isScanning = false;
-    let connectedDevices = new Set(); // Stores MAC addresses of connected devices
+
+    // Event Listeners for File Selection
+    dropZone.addEventListener('click', (e) => {
+        if (e.target.closest('#clear-file-btn')) return;
+        fileInput.click();
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            handleFileSelection(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFileSelection(e.target.files[0]);
+        }
+    });
+
+    clearFileBtn.addEventListener('click', () => {
+        selectedFile = null;
+        fileInput.value = '';
+        selectedFileInfo.classList.add('hidden');
+    });
 
     scanBtn.addEventListener('click', startScan);
 
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = 2;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    function handleFileSelection(file) {
+        selectedFile = file;
+        fileNameDisplay.textContent = file.name;
+        fileSizeDisplay.textContent = formatBytes(file.size);
+        selectedFileInfo.classList.remove('hidden');
+    }
+
     function setStatus(message, type = 'info') {
+        if (!message) {
+            statusMessage.classList.add('hidden');
+            return;
+        }
         statusMessage.textContent = message;
-        statusMessage.className = `status-message status-${type}`;
+        statusMessage.className = `status-${type}`;
+        statusMessage.classList.remove('hidden');
+        if (type === 'success' || type === 'error') {
+            setTimeout(() => { statusMessage.classList.add('hidden'); }, 5000);
+        }
     }
 
     async function startScan() {
         if (isScanning) return;
-
+        
         isScanning = true;
         scanBtn.disabled = true;
         btnText.textContent = 'Scanning...';
         btnSpinner.classList.remove('hidden');
-        setStatus('Searching for nearby BLE devices...', 'info');
-
+        
         try {
             const response = await fetch('/api/scan');
             const data = await response.json();
-
+            
             if (data.status === 'success') {
                 renderDevices(data.devices);
-                setStatus(`Found ${data.devices.length} device(s)`, 'success');
             } else {
-                setStatus(`Scan failed: ${data.message}`, 'error');
+                setStatus(`Scan error: ${data.message}`, 'error');
             }
         } catch (error) {
-            setStatus('Failed to reach server. Is it running?', 'error');
-            console.error(error);
+            setStatus('Failed to reach server for scanning.', 'error');
         } finally {
             isScanning = false;
             scanBtn.disabled = false;
-            btnText.textContent = 'Scan Devices';
+            btnText.textContent = 'Discover Devices';
             btnSpinner.classList.add('hidden');
         }
     }
 
-    function getSignalColor(rssi) {
-        if (rssi >= -60) return '#10b981'; // Green (Strong)
-        if (rssi >= -80) return '#f59e0b'; // Yellow (Medium)
-        return '#ef4444'; // Red (Weak)
-    }
-
-    function getSignalPercentage(rssi) {
-        // Map RSSI (-100 to -40) to percentage (0 to 100)
-        let percent = Math.min(Math.max(2 * (rssi + 100), 0), 100);
-        return `${percent}%`;
-    }
-
     function renderDevices(devices) {
         deviceTbody.innerHTML = '';
-
+        
         if (devices.length === 0) {
-            deviceTbody.innerHTML = `
-                <tr class="empty-state">
-                    <td colspan="4">No devices found. Try scanning again.</td>
-                </tr>
-            `;
+            deviceTbody.innerHTML = '<tr class="empty-state"><td colspan="4">No Bluetooth devices found nearby.</td></tr>';
             return;
         }
-
-        let hasShownAvailableHeader = false;
-        let hasShownPairedHeader = false;
-
-        devices.forEach((device, index) => {
-            if (!device.is_paired && !hasShownAvailableHeader) {
-                const headerTr = document.createElement('tr');
-                headerTr.className = 'section-header';
-                headerTr.innerHTML = `<td colspan="4">Available Devices</td>`;
-                deviceTbody.appendChild(headerTr);
-                hasShownAvailableHeader = true;
-            } else if (device.is_paired && !hasShownPairedHeader) {
-                const headerTr = document.createElement('tr');
-                headerTr.className = 'section-header';
-                headerTr.innerHTML = `<td colspan="4">Paired Devices</td>`;
-                deviceTbody.appendChild(headerTr);
-                hasShownPairedHeader = true;
-            }
-
-            const tr = document.createElement('tr');
-            tr.style.animation = `fadeIn 0.3s ease-out ${index * 0.05}s both`;
-
-            const isConnected = connectedDevices.has(device.address);
-            const btnClass = isConnected ? 'action-btn disconnect' : 'action-btn connect';
-            const btnText = isConnected ? 'Disconnect' : 'Connect';
-
-            tr.innerHTML = `
-                <td>
-                    <div class="device-name">
-                        ${device.name}
-                        ${device.is_paired ? '<span class="badge badge-paired">Paired</span>' : ''}
-                    </div>
-                </td>
-                <td>
-                    <div class="device-mac">${device.address}</div>
-                </td>
-                <td>
-                    <div class="signal-strength">
-                        <div class="signal-bar">
-                            <div class="signal-fill" style="width: ${getSignalPercentage(device.rssi)}; background-color: ${getSignalColor(device.rssi)}"></div>
-                        </div>
-                        <span style="font-size: 0.85rem; color: var(--text-secondary)">${device.rssi} dBm</span>
-                    </div>
-                </td>
-                <td>
-                    <button class="${btnClass}" data-address="${device.address}">
-                        ${btnText}
-                    </button>
-                </td>
-            `;
-            deviceTbody.appendChild(tr);
-        });
-
-        // Add event listeners to buttons
-        const actionBtns = deviceTbody.querySelectorAll('.action-btn');
-        actionBtns.forEach(btn => {
-            btn.addEventListener('click', handleConnectionAction);
+        
+        devices.forEach((device) => {
+            const clone = deviceRowTemplate.content.cloneNode(true);
+            const tr = clone.querySelector('tr');
+            
+            clone.querySelector('strong').textContent = device.name;
+            clone.querySelector('.td-mac').textContent = device.address;
+            
+            const connectBtn = clone.querySelector('.connect-btn');
+            const sendBtn = clone.querySelector('.send-data-btn');
+            const ipBadge = clone.querySelector('.td-ip .type-badge');
+            
+            // Interaction logic per constraints: IP is unknown initially
+            connectBtn.addEventListener('click', async () => {
+                // Since Bluetooth cannot provide IP magically, we prompt user to identify it
+                // If it's on the same subnet, they type it in, or we can use mDNS in the future.
+                const ipInput = prompt(`Since Bluetooth cannot provide IP, enter the local IP address for ${device.name} (e.g. 192.168.1.15):`);
+                if (!ipInput) return;
+                
+                await connectDevice(ipInput, connectBtn, sendBtn, ipBadge);
+            });
+            
+            sendBtn.addEventListener('click', () => sendFile(sendBtn.dataset.ip));
+            
+            deviceTbody.appendChild(clone);
         });
     }
 
-    async function handleConnectionAction(e) {
-        const btn = e.target;
-        const address = btn.dataset.address;
-        const isConnect = btn.classList.contains('connect');
-
-        btn.disabled = true;
-        btn.textContent = isConnect ? 'Connecting...' : 'Disconnecting...';
-
-        const endpoint = isConnect ? `/api/connect/${address}` : `/api/disconnect/${address}`;
-
+    async function connectDevice(ip, connectBtn, sendBtn, ipBadge) {
+        connectBtn.disabled = true;
+        connectBtn.textContent = 'Handshaking...';
+        
         try {
-            const response = await fetch(endpoint, { method: 'POST' });
+            const response = await fetch(`/api/connect/${ip}`, { method: 'POST' });
             const data = await response.json();
-
-            if (data.status === 'success') {
-                setStatus(data.message, 'success');
-                if (isConnect) {
-                    connectedDevices.add(address);
-                    btn.className = 'action-btn disconnect';
-                    btn.textContent = 'Disconnect';
-                } else {
-                    connectedDevices.delete(address);
-                    btn.className = 'action-btn connect';
-                    btn.textContent = 'Connect';
-                }
+            
+            if (data.status === 'accepted') {
+                setStatus(`Successfully connected via Wi-Fi to ${ip}`, 'success');
+                ipBadge.textContent = ip;
+                ipBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+                ipBadge.style.color = '#10b981';
+                connectBtn.classList.add('hidden');
+                
+                sendBtn.dataset.ip = ip;
+                sendBtn.classList.remove('hidden');
             } else {
-                setStatus(`Failed: ${data.message}`, 'error');
-                // Revert button state
-                btn.textContent = isConnect ? 'Connect' : 'Disconnect';
+                setStatus(`Wi-Fi Connection Error: ${data.message || 'Connection Refused'}`, 'error');
+                connectBtn.textContent = 'Connect Wi-Fi';
             }
         } catch (error) {
-            setStatus('Network error during connection', 'error');
-            btn.textContent = isConnect ? 'Connect' : 'Disconnect';
+            setStatus('Network error during Wi-Fi handshake', 'error');
+            connectBtn.textContent = 'Connect Wi-Fi';
         } finally {
-            btn.disabled = false;
+            connectBtn.disabled = false;
+        }
+    }
+
+    async function sendFile(ip) {
+        if (!selectedFile) {
+            setStatus('Please select a file to send first!', 'error');
+            return;
+        }
+        
+        setStatus(`Attempting to send file to ${ip} via Wi-Fi...`, 'info');
+        
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('ip', ip);
+        
+        try {
+            const response = await fetch('/api/send', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            if (data.status === 'success') {
+                setStatus(`File transferred securely over Wi-Fi! ${data.message}`, 'success');
+            } else {
+                setStatus(`Transfer error: ${data.message}`, 'error');
+            }
+        } catch (error) {
+            setStatus('Network error during file transmission', 'error');
         }
     }
 });

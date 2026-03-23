@@ -1,163 +1,63 @@
-import asyncio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from bleak import BleakScanner, BleakClient
-import sys
+import os
+import shutil
 
-if sys.platform == "win32":
-    from winrt.windows.devices.enumeration import DeviceInformation
-    from winrt.windows.devices.bluetooth import BluetoothDevice
+# Modular imports
+from core.identity import DEVICE_IDENTITY
+from ble.scanner import scan_devices
+from wifi.server import router as wifi_router
+from wifi.client import send_connection_request, send_file_over_wifi
 
-app = FastAPI(title="Bluetooth Manager")
+app = FastAPI(title="Hybrid Bluetooth/Wi-Fi Manager")
 
-# Mount static files (CSS, JS)
+# Setup static folders
+os.makedirs("static", exist_ok=True)
+os.makedirs("templates", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Templates for HTML rendering
 templates = Jinja2Templates(directory="templates")
 
-# Store connected clients to easily disconnect them later
-connected_clients = {}
+# Include the Wi-Fi receiving endpoints
+app.include_router(wifi_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    # Pass our identity directly to the template
+    return templates.TemplateResponse(request=request, name="index.html", context={
+        "request": request, 
+        "identity": DEVICE_IDENTITY
+    })
 
 @app.get("/api/scan")
-async def scan_devices():
-    """Scans for nearby BLE and Classic devices and returns a list."""
+async def api_scan():
+    """Triggers BLE scanning"""
+    return await scan_devices()
+
+@app.post("/api/connect/{ip}")
+async def api_connect(ip: str):
+    """Triggers an HTTP outgoing connection request to a specific IP."""
+    return await send_connection_request(ip)
+
+@app.post("/api/send")
+async def api_send_file(ip: str = Form(...), file: UploadFile = File(...)):
+    """Triggers an HTTP outgoing file transfer to a specific IP."""
+    temp_path = f"temp_{file.filename}"
     try:
-        device_list = []
-        seen_macs = set()
+        # Save temp copy before pushing
+        with open(temp_path, "wb") as buffer:
+             shutil.copyfileobj(file.file, buffer)
         
-        # 1. Provide an initial list from Classic Bluetooth cache (for phones/headphones)
-        if sys.platform == "win32":
-            try:
-                aqs = BluetoothDevice.get_device_selector()
-                # Append AQS rule to only return devices currently present (nearby/turned on)
-                aqs += ' AND System.Devices.Aep.IsPresent:=System.StructuredQueryType.Boolean#True'
-                classic_devices = await DeviceInformation.find_all_async_aqs_filter(aqs)
-                for d in classic_devices:
-                    bt_device = await BluetoothDevice.from_id_async(d.id)
-                    if bt_device:
-                        mac_int = bt_device.bluetooth_address
-                        mac_str = ":".join(f"{mac_int:012X}"[i:i+2] for i in range(0, 12, 2))
-                        # Prefer the Windows friendly name over the hardware ad name
-                        name = d.name or bt_device.name
-                        is_paired = d.pairing.is_paired if hasattr(d, 'pairing') and hasattr(d.pairing, 'is_paired') else False
-                        
-                        if name and name.strip():
-                            seen_macs.add(mac_str)
-                            device_list.append({
-                                "name": name,
-                                "address": mac_str,
-                                "rssi": -50, # Fake strong RSSI for known devices so they show up high
-                                "type": "Classic",
-                                "is_paired": is_paired
-                            })
-            except Exception as e:
-                print(f"Error finding Classic Bluetooth devices on Windows: {e}")
-        elif sys.platform == "linux":
-            try:
-                import asyncio
-                
-                # First fetch paired devices
-                paired_process = await asyncio.create_subprocess_exec(
-                    'bluetoothctl', 'paired-devices',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                p_stdout, _ = await paired_process.communicate()
-                paired_macs = set()
-                if paired_process.returncode == 0 and p_stdout:
-                    for line in p_stdout.decode('utf-8').strip().split('\n'):
-                        parts = line.split(' ', 2)
-                        if len(parts) >= 3 and parts[0] == 'Device':
-                            paired_macs.add(parts[1].upper())
+        # Dispatch via wifi client
+        result = await send_file_over_wifi(ip, temp_path)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    
+    return result
 
-                # Then fetch all devices
-                process = await asyncio.create_subprocess_exec(
-                    'bluetoothctl', 'devices',
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
-                if process.returncode == 0 and stdout:
-                    lines = stdout.decode('utf-8').strip().split('\n')
-                    for line in lines:
-                        parts = line.split(' ', 2)
-                        if len(parts) >= 3 and parts[0] == 'Device':
-                            mac_str = parts[1].upper()
-                            name = parts[2]
-                            is_paired = mac_str in paired_macs
-                            
-                            if name and name.strip():
-                                seen_macs.add(mac_str)
-                                device_list.append({
-                                    "name": name,
-                                    "address": mac_str,
-                                    "rssi": -50, # Fake strong RSSI for known devices so they show up high
-                                    "type": "Classic",
-                                    "is_paired": is_paired
-                                })
-            except Exception as e:
-                print(f"Error finding Classic Bluetooth devices on Linux: {e}")
-
-        # 2. Scan for BLE devices, timeout 5 seconds
-        devices = await BleakScanner.discover(timeout=5.0, return_adv=True)
-        for d, adv in devices.values():
-            if d.address in seen_macs:
-                continue # We already have a good name from the Classic side
-                
-            # Get name from either standard property or advertisement data
-            actual_name = d.name or adv.local_name
-            # Provide a fallback if name is completely empty, incorporating the MAC address so it's distinct
-            if not actual_name or str(actual_name).strip() == "":
-                actual_name = f"Unknown Device ({d.address})"
-                
-            device_list.append({
-                "name": actual_name,
-                "address": d.address,
-                "rssi": adv.rssi if adv.rssi is not None else -100,
-                "type": "BLE",
-                "is_paired": False
-            })
-            seen_macs.add(d.address)
-        
-        # Sort by paired status (False before True) then by signal strength (RSSI) descending
-        # This keeps actively scanning unpaired in-range devices at the top, and paired (historically known) devices at the bottom.
-        device_list.sort(key=lambda x: (x.get("is_paired", False), -x["rssi"]))
-        return {"status": "success", "devices": device_list}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.post("/api/connect/{address}")
-async def connect_device(address: str):
-    """Attempt to connect to a specific BLE device."""
-    if address in connected_clients and connected_clients[address].is_connected:
-        return {"status": "success", "message": "Already connected to device"}
-        
-    try:
-        client = BleakClient(address)
-        await client.connect(timeout=10.0)
-        
-        if client.is_connected:
-            connected_clients[address] = client
-            return {"status": "success", "message": f"Connected to {address}"}
-        else:
-            return {"status": "error", "message": "Connection failed"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.post("/api/disconnect/{address}")
-async def disconnect_device(address: str):
-    """Disconnect from a BLE device."""
-    if address in connected_clients:
-        client = connected_clients[address]
-        if client.is_connected:
-            await client.disconnect()
-            del connected_clients[address]
-            return {"status": "success", "message": f"Disconnected from {address}"}
-    return {"status": "error", "message": "Not connected to this device"}
+if __name__ == "__main__":
+    import uvicorn
+    # uvicorn main:app --host 0.0.0.0 --port 8000
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
