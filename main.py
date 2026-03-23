@@ -4,8 +4,11 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from bleak import BleakScanner, BleakClient
-from winrt.windows.devices.enumeration import DeviceInformation
-from winrt.windows.devices.bluetooth import BluetoothDevice
+import sys
+
+if sys.platform == "win32":
+    from winrt.windows.devices.enumeration import DeviceInformation
+    from winrt.windows.devices.bluetooth import BluetoothDevice
 
 app = FastAPI(title="Bluetooth Manager")
 
@@ -30,29 +33,77 @@ async def scan_devices():
         seen_macs = set()
         
         # 1. Provide an initial list from Classic Bluetooth cache (for phones/headphones)
-        try:
-            aqs = BluetoothDevice.get_device_selector()
-            # Append AQS rule to only return devices currently present (nearby/turned on)
-            aqs += ' AND System.Devices.Aep.IsPresent:=System.StructuredQueryType.Boolean#True'
-            classic_devices = await DeviceInformation.find_all_async_aqs_filter(aqs)
-            for d in classic_devices:
-                bt_device = await BluetoothDevice.from_id_async(d.id)
-                if bt_device:
-                    mac_int = bt_device.bluetooth_address
-                    mac_str = ":".join(f"{mac_int:012X}"[i:i+2] for i in range(0, 12, 2))
-                    # Prefer the Windows friendly name over the hardware ad name
-                    name = d.name or bt_device.name
-                    
-                    if name and name.strip():
-                        seen_macs.add(mac_str)
-                        device_list.append({
-                            "name": name,
-                            "address": mac_str,
-                            "rssi": -50, # Fake strong RSSI for known devices so they show up high
-                            "type": "Classic"
-                        })
-        except Exception as e:
-            print(f"Error finding Classic Bluetooth devices: {e}")
+        if sys.platform == "win32":
+            try:
+                aqs = BluetoothDevice.get_device_selector()
+                # Append AQS rule to only return devices currently present (nearby/turned on)
+                aqs += ' AND System.Devices.Aep.IsPresent:=System.StructuredQueryType.Boolean#True'
+                classic_devices = await DeviceInformation.find_all_async_aqs_filter(aqs)
+                for d in classic_devices:
+                    bt_device = await BluetoothDevice.from_id_async(d.id)
+                    if bt_device:
+                        mac_int = bt_device.bluetooth_address
+                        mac_str = ":".join(f"{mac_int:012X}"[i:i+2] for i in range(0, 12, 2))
+                        # Prefer the Windows friendly name over the hardware ad name
+                        name = d.name or bt_device.name
+                        is_paired = d.pairing.is_paired if hasattr(d, 'pairing') and hasattr(d.pairing, 'is_paired') else False
+                        
+                        if name and name.strip():
+                            seen_macs.add(mac_str)
+                            device_list.append({
+                                "name": name,
+                                "address": mac_str,
+                                "rssi": -50, # Fake strong RSSI for known devices so they show up high
+                                "type": "Classic",
+                                "is_paired": is_paired
+                            })
+            except Exception as e:
+                print(f"Error finding Classic Bluetooth devices on Windows: {e}")
+        elif sys.platform == "linux":
+            try:
+                import asyncio
+                
+                # First fetch paired devices
+                paired_process = await asyncio.create_subprocess_exec(
+                    'bluetoothctl', 'paired-devices',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                p_stdout, _ = await paired_process.communicate()
+                paired_macs = set()
+                if paired_process.returncode == 0 and p_stdout:
+                    for line in p_stdout.decode('utf-8').strip().split('\n'):
+                        parts = line.split(' ', 2)
+                        if len(parts) >= 3 and parts[0] == 'Device':
+                            paired_macs.add(parts[1].upper())
+
+                # Then fetch all devices
+                process = await asyncio.create_subprocess_exec(
+                    'bluetoothctl', 'devices',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode == 0 and stdout:
+                    lines = stdout.decode('utf-8').strip().split('\n')
+                    for line in lines:
+                        parts = line.split(' ', 2)
+                        if len(parts) >= 3 and parts[0] == 'Device':
+                            mac_str = parts[1].upper()
+                            name = parts[2]
+                            is_paired = mac_str in paired_macs
+                            
+                            if name and name.strip():
+                                seen_macs.add(mac_str)
+                                device_list.append({
+                                    "name": name,
+                                    "address": mac_str,
+                                    "rssi": -50, # Fake strong RSSI for known devices so they show up high
+                                    "type": "Classic",
+                                    "is_paired": is_paired
+                                })
+            except Exception as e:
+                print(f"Error finding Classic Bluetooth devices on Linux: {e}")
 
         # 2. Scan for BLE devices, timeout 5 seconds
         devices = await BleakScanner.discover(timeout=5.0, return_adv=True)
@@ -70,12 +121,14 @@ async def scan_devices():
                 "name": actual_name,
                 "address": d.address,
                 "rssi": adv.rssi if adv.rssi is not None else -100,
-                "type": "BLE"
+                "type": "BLE",
+                "is_paired": False
             })
             seen_macs.add(d.address)
         
-        # Sort by signal strength (RSSI)
-        device_list.sort(key=lambda x: x["rssi"], reverse=True)
+        # Sort by paired status (False before True) then by signal strength (RSSI) descending
+        # This keeps actively scanning unpaired in-range devices at the top, and paired (historically known) devices at the bottom.
+        device_list.sort(key=lambda x: (x.get("is_paired", False), -x["rssi"]))
         return {"status": "success", "devices": device_list}
     except Exception as e:
         return {"status": "error", "message": str(e)}

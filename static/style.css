@@ -70,6 +70,7 @@ h1 {
     font-weight: 600;
     letter-spacing: -0.5px;
     background: linear-gradient(to right, #fff, #cbd5e1);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -171,6 +172,18 @@ header p {
     border-bottom: 1px solid var(--surface-border);
 }
 
+.section-header td {
+    background: rgba(255, 255, 255, 0.08); /* Distinct header bar */
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 12px 24px !important;
+    border-top: 1px solid var(--surface-border);
+    border-bottom: 1px solid var(--surface-border);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
 .device-table tbody tr {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     transition: background 0.2s ease;
@@ -187,6 +200,22 @@ header p {
 .device-name {
     font-weight: 500;
     color: #fff;
+    display: flex;
+    align-items: center;
+}
+
+.badge {
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    font-weight: 500;
+}
+
+.badge-paired {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success-color);
+    border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .device-mac {

@@ -70,7 +70,24 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        let hasShownAvailableHeader = false;
+        let hasShownPairedHeader = false;
+
         devices.forEach((device, index) => {
+            if (!device.is_paired && !hasShownAvailableHeader) {
+                const headerTr = document.createElement('tr');
+                headerTr.className = 'section-header';
+                headerTr.innerHTML = `<td colspan="4">Available Devices</td>`;
+                deviceTbody.appendChild(headerTr);
+                hasShownAvailableHeader = true;
+            } else if (device.is_paired && !hasShownPairedHeader) {
+                const headerTr = document.createElement('tr');
+                headerTr.className = 'section-header';
+                headerTr.innerHTML = `<td colspan="4">Paired Devices</td>`;
+                deviceTbody.appendChild(headerTr);
+                hasShownPairedHeader = true;
+            }
+
             const tr = document.createElement('tr');
             tr.style.animation = `fadeIn 0.3s ease-out ${index * 0.05}s both`;
 
@@ -80,7 +97,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             tr.innerHTML = `
                 <td>
-                    <div class="device-name">${device.name}</div>
+                    <div class="device-name">
+                        ${device.name}
+                        ${device.is_paired ? '<span class="badge badge-paired">Paired</span>' : ''}
+                    </div>
                 </td>
                 <td>
                     <div class="device-mac">${device.address}</div>
