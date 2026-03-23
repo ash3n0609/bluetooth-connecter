@@ -127,8 +127,17 @@ document.addEventListener('DOMContentLoaded', () => {
             clone.querySelector('.td-mac').textContent = device.address;
             
             const connectBtn = clone.querySelector('.connect-btn');
+            const connectBleBtn = clone.querySelector('.connect-ble-btn');
             const sendBtn = clone.querySelector('.send-data-btn');
             const ipBadge = clone.querySelector('.td-ip .type-badge');
+            
+            if (device.type === 'Classic BT') {
+                connectBleBtn.classList.add('hidden');
+            }
+            
+            connectBleBtn.addEventListener('click', async () => {
+                await connectBleDevice(device.address, connectBleBtn);
+            });
             
             // Interaction logic per constraints: IP is unknown initially
             connectBtn.addEventListener('click', async () => {
@@ -144,6 +153,28 @@ document.addEventListener('DOMContentLoaded', () => {
             
             deviceTbody.appendChild(clone);
         });
+    }
+
+    async function connectBleDevice(mac, btn) {
+        btn.disabled = true;
+        btn.textContent = 'Receiving...';
+        setStatus(`Attempting BLE connection and data reception from ${mac}...`, 'info');
+        
+        try {
+            const response = await fetch(`/api/ble/connect/${encodeURIComponent(mac)}`, { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                setStatus(`Successfully connected and received ${data.bytes_received || 0} bytes via BLE! Data saved locally.`, 'success');
+            } else {
+                setStatus(`BLE Error: ${data.message}`, 'error');
+            }
+        } catch (error) {
+            setStatus('Network error during BLE connection', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Connect BLE';
+        }
     }
 
     async function connectDevice(ip, connectBtn, sendBtn, ipBadge) {

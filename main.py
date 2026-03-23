@@ -8,6 +8,7 @@ import shutil
 # Modular imports
 from core.identity import DEVICE_IDENTITY
 from ble.scanner import scan_devices
+from ble.connector import connect_and_receive_ble_data
 from wifi.server import router as wifi_router
 from wifi.client import send_connection_request, send_file_over_wifi
 
@@ -39,6 +40,11 @@ async def api_scan():
 async def api_connect(ip: str):
     """Triggers an HTTP outgoing connection request to a specific IP."""
     return await send_connection_request(ip)
+
+@app.post("/api/ble/connect/{mac}")
+async def api_ble_connect(mac: str):
+    """Triggers BLE connection to receive data"""
+    return await connect_and_receive_ble_data(mac)
 
 @app.post("/api/send")
 async def api_send_file(ip: str = Form(...), file: UploadFile = File(...)):

@@ -144,11 +144,12 @@ header p {
 .status-error { color: var(--danger-color); }
 .status-info { color: var(--text-secondary); }
 
-.device-list-container {
+.device-table-container {
     background: rgba(0, 0, 0, 0.2);
     border-radius: 16px;
     border: 1px solid var(--surface-border);
     overflow: hidden;
+    margin-top: 1rem;
 }
 
 .device-table {
@@ -296,4 +297,98 @@ header p {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Missing Layout Styles */
+.card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--surface-border);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.upload-section h2, .devices-section h2 {
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.upload-area {
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.upload-area:hover, .upload-area.dragover {
+    border-color: var(--primary-accent);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.hidden-input {
+    display: none;
+}
+
+.upload-icon {
+    color: var(--text-secondary);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.action-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.my-device {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    margin-top: 1rem;
+}
+
+.device-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.device-name-container {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.device-icon {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.4rem;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.type-badge {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.25rem 0.6rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
 }
