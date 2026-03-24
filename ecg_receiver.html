@@ -209,10 +209,9 @@
 
                 console.log("Broadcasting connection attempt to explicit device filters...");
                 
-                // Specifically filter out other devices
+                // Broadly filter by the required health characteristics regardless of the broadcasting OS Name
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: "Linux_ECG_Sim" }],     
-                    optionalServices: [SERVICE_UUID]        
+                    filters: [{ services: [SERVICE_UUID] }]
                 });
 
                 // Attach disconnection hook to automatically update ui if sensor dies
