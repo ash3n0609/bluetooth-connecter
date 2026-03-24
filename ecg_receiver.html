@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <title>ECG Monitor prototype</title>
+    <!-- Include Chart.js from CDN for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #0d1117; /* Sleek dark mode background */
+            color: #c9d1d9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            width: 100%;
+            background-color: #161b22;
+            color: #ffffff;
+            padding: 24px;
+            text-align: center;
+            border-bottom: 1px solid #30363d;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        h1 {
+            margin: 0;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .controls {
+            margin: 30px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        button {
+            /* Interactive modern button styling */
+            background: linear-gradient(135deg, #1f6feb 0%, #1656bc 100%);
+            color: white;
+            border: 1px solid #388bfd;
+            padding: 14px 28px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        button:hover {
+            background: linear-gradient(135deg, #388bfd 0%, #1f6feb 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(31, 111, 235, 0.4);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .status-badge {
+            padding: 12px 24px;
+            background-color: #da3633;
+            color: white;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            box-shadow: 0 0 10px rgba(218, 54, 51, 0.4);
+            border: 1px solid #f85149;
+            transition: all 0.4s ease;
+        }
+        
+        .status-badge.connected {
+            background-color: #238636;
+            border-color: #2ea043;
+            box-shadow: 0 0 15px rgba(35, 134, 54, 0.6);
+        }
+
+        .chart-container {
+            width: 95vw;    /* Full width container layout */
+            max-width: 1400px;
+            height: 65vh;
+            background: #161b22;
+            border-radius: 12px;
+            border: 1px solid #30363d;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            padding: 25px;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .chart-container {
+                height: 50vh;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Real-time ECG Monitor</h1>
+    </header>
+
+    <div class="controls">
+        <button id="connectBtn">Connect to ECG Sensor</button>
+        <div id="statusBadge" class="status-badge">Disconnected</div>
+    </div>
+
+    <!-- The actual canvas component holding the signal drawing stream -->
+    <div class="chart-container">
+        <canvas id="ecgChart"></canvas>
+    </div>
+
+    <script>
+        // --- Required BLE Specs ---
+        const SERVICE_UUID = "12345678-1234-5678-1234-56789abcdef0";
+        const CHAR_UUID = "abcdef01-1234-5678-1234-56789abcdef0";
+        const MAX_DATA_POINTS = 50;
+
+        // --- DOM Elements ---
+        const connectBtn = document.getElementById('connectBtn');
+        const statusBadge = document.getElementById('statusBadge');
+        const ctx = document.getElementById('ecgChart').getContext('2d');
+
+        // References to our bluetooth instances
+        let bleDevice = null;
+        let bleCharacteristic = null;
+
+        // --- Chart.js Configuration ---
+        const chartConfig = {
+            type: 'line',
+            data: {
+                labels: [], // Abstract timestamp representations
+                datasets: [{
+                    label: 'ECG Signal (mV)',
+                    data: [], // Floating point numbers extracted via bluetooth view
+                    borderColor: '#2ecc71',         // High visibility glowing green
+                    borderWidth: 3,
+                    pointRadius: 0,                 // Required: hidden dots to simulate medical monitors
+                    pointHoverRadius: 0,
+                    tension: 0.3,                   // Slight curve smoothing approximation
+                    fill: false,
+                    segment: {
+                        borderColor: ctx => '#2ecc71'
+                    }
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false, // Provide immediate data placement with no animation overhead
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                scales: {
+                    x: {
+                        display: false // Hide horizontal labels completely
+                    },
+                    y: {
+                        display: true,
+                        grid: {
+                            color: '#30363d'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Voltage (mV)',
+                            color: '#8b949e',
+                            font: { size: 14 }
+                        },
+                        ticks: {
+                            color: '#8b949e'
+                        },
+                        min: -2,  // Hardcoded approximate scale for standardized display
+                        max: 2
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#c9d1d9',
+                            font: { size: 14, weight: 'bold' }
+                        }
+                    }
+                }
+            }
+        };
+
+        const ecgChart = new Chart(ctx, chartConfig);
+        let timeIndex = 0;
+
+        // --- Connectivity Sequence Implementation ---
+        connectBtn.addEventListener('click', async () => {
+            try {
+                // If it's already bound, handle the disconnect process
+                if (bleDevice && bleDevice.gatt.connected) {
+                    console.log("Terminating session due to user interaction.");
+                    bleDevice.gatt.disconnect();
+                    return;
+                }
+
+                console.log("Broadcasting connection attempt to explicit device filters...");
+                
+                // Specifically filter out other devices
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: "Linux_ECG_Sim" }],     
+                    optionalServices: [SERVICE_UUID]        
+                });
+
+                // Attach disconnection hook to automatically update ui if sensor dies
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                console.log("Bridging the generic attribute profile handler (GATT)...");
+                statusBadge.textContent = "Negotiating...";
+                
+                const server = await bleDevice.gatt.connect();
+
+                console.log(`Resolving expected custom service id: ${SERVICE_UUID}...`);
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                console.log(`Resolving target IO characteristc: ${CHAR_UUID}...`);
+                bleCharacteristic = await service.getCharacteristic(CHAR_UUID);
+
+                console.log("Asking remote sensor to ping data streams via characteristics...");
+                await bleCharacteristic.startNotifications();
+                
+                // Add an event listener corresponding to server side's `.update_value()` triggering
+                bleCharacteristic.addEventListener('characteristicvaluechanged', handleCharacteristicValueChanged);
+
+                statusBadge.textContent = "Bound & Plotting Stream";
+                statusBadge.classList.add("connected");
+                connectBtn.textContent = "Disconnect Simulator";
+                connectBtn.style.background = "linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)";
+                connectBtn.style.borderColor = "#c0392b";
+
+            } catch (error) {
+                console.error("The bluetooth handshake request crashed:", error);
+                statusBadge.textContent = "Handshake Error";
+                statusBadge.classList.remove("connected");
+            }
+        });
+
+        // Event listener triggered globally by a connection loss 
+        function onDisconnected() {
+            console.warn("Peripheral communication physically lost or explicitly ordered to shut down.");
+            statusBadge.textContent = "Disconnected";
+            statusBadge.classList.remove("connected");
+            connectBtn.textContent = "Connect to ECG Sensor";
+            connectBtn.style.background = "";
+            connectBtn.style.borderColor = "";
+        }
+
+        // --- Incoming Data Transformation ---
+        function handleCharacteristicValueChanged(event) {
+            // Note: In Web Bluetooth `event.target.value` will yield a standardized `DataView` wrapper
+            const dataView = event.target.value;
+
+            // Extract exactly a single 64-bit float from byte index 0. 
+            // the `true` parameter represents reading via "Little Endian" format 
+            // which guarantees conformity with `struct.pack('<d', ...)` standard representations.
+            const rawFloat64 = dataView.getFloat64(0, true);
+            
+            // Plot on canvas mapping
+            updateChartBuffer(rawFloat64);
+        }
+
+        // --- Data Buffer Shift Updates ---
+        function updateChartBuffer(val) {
+            const seriesBuffer = ecgChart.data.datasets[0].data;
+            const domainBuffer = ecgChart.data.labels;
+
+            // Push fresh incoming value rightwards
+            seriesBuffer.push(val);
+            domainBuffer.push(timeIndex++);
+
+            // Truncate to achieve visual "sliding window memory stream" 
+            if (seriesBuffer.length > MAX_DATA_POINTS) {
+                seriesBuffer.shift(); 
+                domainBuffer.shift(); 
+            }
+
+            // In-place UI repaints mapped by chart internal handlers
+            ecgChart.update('none'); 
+        }
+    </script>
+</body>
+</html>
