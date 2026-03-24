@@ -4,4 +4,5 @@ bleak
 jinja2
 python-multipart
 httpx
+numpy
 winrt-runtime==3.2.1; sys_platform == 'win32'

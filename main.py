@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import shutil
@@ -62,6 +62,29 @@ async def api_send_file(ip: str = Form(...), file: UploadFile = File(...)):
             os.remove(temp_path)
     
     return result
+
+@app.get("/api/downloads/{filename}")
+async def download_file(filename: str):
+    """Serves a saved .npy file from the downloads folder."""
+    file_path = os.path.join("downloads", filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path=file_path,
+        media_type="application/octet-stream",
+        filename=filename
+    )
+
+@app.get("/api/downloads")
+async def list_downloads():
+    """Lists all saved .npy files in the downloads folder."""
+    os.makedirs("downloads", exist_ok=True)
+    files = [
+        {"filename": f, "size_bytes": os.path.getsize(os.path.join("downloads", f))}
+        for f in os.listdir("downloads")
+        if f.endswith(".npy")
+    ]
+    return {"status": "success", "files": sorted(files, key=lambda x: x["filename"], reverse=True)}
 
 if __name__ == "__main__":
     import uvicorn

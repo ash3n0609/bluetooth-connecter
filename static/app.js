@@ -165,7 +165,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             
             if (data.status === 'success') {
-                setStatus(`Successfully connected and received ${data.bytes_received || 0} bytes via BLE! Data saved locally.`, 'success');
+                const mockTag = data.mock ? ' [Mock ESP32]' : '';
+                const bytes = data.bytes_received || 0;
+                let msg = `✔ Received ${bytes} bytes via BLE${mockTag}. Data saved.`;
+
+                // If a filename was returned, append a download link
+                if (data.filename) {
+                    const link = document.createElement('a');
+                    link.href = `/api/downloads/${encodeURIComponent(data.filename)}`;
+                    link.textContent = ` ⬇ Download ${data.filename}`;
+                    link.style.cssText = 'color:#10b981;margin-left:8px;text-decoration:underline;cursor:pointer;';
+                    link.download = data.filename;
+
+                    statusMessage.textContent = msg;
+                    statusMessage.className = 'status-success';
+                    statusMessage.classList.remove('hidden');
+                    statusMessage.appendChild(link);
+                    setTimeout(() => { statusMessage.classList.add('hidden'); }, 15000);
+                } else {
+                    setStatus(msg, 'success');
+                }
             } else {
                 setStatus(`BLE Error: ${data.message}`, 'error');
             }

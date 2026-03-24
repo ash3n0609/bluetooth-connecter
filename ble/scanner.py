@@ -53,6 +53,15 @@ async def scan_devices():
     except Exception as e:
         print(f"BLE Scan Error: {e}")
 
+    # Inject a mock ESP32 device for testing without hardware
+    device_list.append({
+        "name": "Mock_ESP32_Test_Device",
+        "address": "FF:FF:FF:FF:FF:FF",
+        "rssi": -30,
+        "type": "BLE",
+        "ip": None
+    })
+
     # Sort strongest signals first
     device_list.sort(key=lambda x: -x["rssi"])
     return {"status": "success", "devices": device_list}
